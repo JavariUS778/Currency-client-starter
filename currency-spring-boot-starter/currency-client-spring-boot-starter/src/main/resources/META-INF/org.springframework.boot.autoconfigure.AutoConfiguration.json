@@ -1,0 +1,52 @@
+{
+  "properties": [
+    {
+      "name": "currency.api.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Включить или отключить стартер.",
+      "defaultValue": true
+    },
+    {
+      "name": "currency.api.provider",
+      "type": "com.example.currency.properties.CurrencyApiProperties$Provider",
+      "description": "Выбор провайдера API валют. Доступные значения: CBR (Центробанк РФ), NBP (Нацбанк Польши).",
+      "defaultValue": "NBP"
+    },
+    {
+      "name": "currency.api.base-currency",
+      "type": "java.lang.String",
+      "description": "Код базовой валюты для конвертации.",
+      "defaultValue": "USD"
+    },
+    {
+      "name": "currency.api.connect-timeout",
+      "type": "java.time.Duration",
+      "description": "Таймаут установки соединения.",
+      "defaultValue": "5s"
+    },
+    {
+      "name": "currency.api.read-timeout",
+      "type": "java.time.Duration",
+      "description": "Таймаут чтения ответа от API.",
+      "defaultValue": "10s"
+    },
+    {
+      "name": "currency.api.cache.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Включить кэширование результатов запросов.",
+      "defaultValue": true
+    },
+    {
+      "name": "currency.api.provider-config.cbr-url",
+      "type": "java.lang.String",
+      "description": "URL SOAP-сервиса Центрального банка России.",
+      "defaultValue": "https://www.cbr.ru/DailyInfoWebServ/DailyInfo.asmx"
+    },
+    {
+      "name": "currency.api.provider-config.nbp-url",
+      "type": "java.lang.String",
+      "description": "Базовый URL REST API Национального банка Польши.",
+      "defaultValue": "https://api.nbp.pl/api"
+    }
+  ]
+}
