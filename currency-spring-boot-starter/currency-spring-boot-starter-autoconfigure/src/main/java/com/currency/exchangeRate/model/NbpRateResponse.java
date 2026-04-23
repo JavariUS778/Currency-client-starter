@@ -11,3 +11,4 @@ public class NbpRateResponse {
     private String code;
     private List<NbpRate> rates;
 }
+//
