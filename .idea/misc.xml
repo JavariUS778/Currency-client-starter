@@ -7,6 +7,12 @@
         <option value="$PROJECT_DIR$/currency-spring-boot-starter/pom.xml" />
       </list>
     </option>
+    <option name="ignoredFiles">
+      <set>
+        <option value="$PROJECT_DIR$/currency-spring-boot-starter/currency-client-spring-boot-starter/pom.xml" />
+        <option value="$PROJECT_DIR$/currency-spring-boot-starter/currency-spring-boot-starter-autoconfigure/pom.xml" />
+      </set>
+    </option>
   </component>
   <component name="ProjectRootManager" version="2" project-jdk-name="openjdk-25" project-jdk-type="JavaSDK">
     <output url="file://$PROJECT_DIR$/out" />
