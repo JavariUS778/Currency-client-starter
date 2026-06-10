@@ -1,0 +1,11 @@
+
+currency:
+  client:
+    enabled: true
+    provider: NBRB
+    cache:
+      enabled: false
+    urls:
+      nbrb: http://localhost:9999/mock
+      nbp: http://localhost:9999/mock
+      cbr: http://localhost:9999/mock

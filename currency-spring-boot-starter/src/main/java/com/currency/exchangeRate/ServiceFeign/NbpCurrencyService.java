@@ -4,16 +4,17 @@ import com.currency.exchangeRate.ClientFeign.NbpFeClient;
 import com.currency.exchangeRate.FeDto.NbpRateDto;
 import com.currency.exchangeRate.FeDto.NbpTableDto;
 import com.currency.exchangeRate.ModelFeign.ExchangeRateFeign;
+import com.currency.exchangeRate.cache.CacheMetricsExporter;
 import com.currency.exchangeRate.exception.StarterError;
 import com.currency.exchangeRate.exception.StarterException;
 import com.currency.exchangeRate.utility.DateUtil;
 import feign.FeignException;
 import feign.RetryableException;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.time.DateUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Lazy;
 
 import java.math.BigDecimal;
@@ -30,21 +31,34 @@ public class NbpCurrencyService implements CurrencyProovider{
 
     @Lazy
     @Autowired
-    private CurrencyProovider self;
+    private ApplicationContext context;
+
+    @Autowired
+    private CacheMetricsExporter cacheMetrics;
+
+    private CurrencyProovider self() {
+        return context.getBean(CurrencyProovider.class);
+    }
 
     private static final DateTimeFormatter DATE_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
 
     private final NbpFeClient nbpClient;
-    public NbpCurrencyService(NbpFeClient nbpClient) {
+    public NbpCurrencyService( NbpFeClient nbpClient) {
         this.nbpClient = nbpClient;
     }
 
     @Override
     @Cacheable(value = "exchangeRates", key = "'all-' + #date.toString()")
     public List<ExchangeRateFeign> getAllRates(LocalDate date) {
+
         validateDate(date);
+
+
+        cacheMetrics.recordMiss("GetAllRates");
+
+
         LocalDate businessDay = DateUtil.getLastBusinessDay(date);
         try {
 
@@ -56,6 +70,8 @@ public class NbpCurrencyService implements CurrencyProovider{
 
             return mapTableToExchangeRates(tables);
 
+        } catch (StarterException e) {
+            throw e;
         } catch (FeignException.NotFound e) {
             log.warn("Таблица курсов не найдена для даты: {}", date, e);
             throw new StarterException(StarterError.CURRENCY_BY_DATE_NOT_FOUND);
@@ -80,8 +96,13 @@ public class NbpCurrencyService implements CurrencyProovider{
     @Override
     @Cacheable(value = "exchangeRates", key = "#date.toString() + '-' + #code")
     public ExchangeRateFeign getRateByCode(LocalDate date, String code) {
+
         validateDate(date);
         validateCurrencyCode(code);
+
+        cacheMetrics.recordMiss("GetRateByCode");
+
+
         LocalDate businessDay = DateUtil.getLastBusinessDay(date);
 
         try {
@@ -119,13 +140,17 @@ public class NbpCurrencyService implements CurrencyProovider{
     @Override
     @Cacheable(value = "exchangeRates", key = "'batch-' + #date.toString() + '-' + T(String).join(',', #codes.stream().sorted().toList())")
     public List<ExchangeRateFeign> getRatesByCodes(LocalDate date, List<String> codes) {
+
         validateDate(date);
+
+        cacheMetrics.recordMiss("GetRatesByCodes");
+        cacheMetrics.recordHit("GetRatesByCodes");
 
         if (codes == null || codes.isEmpty()) {
             log.warn("Пустой список кодов валют");
             return List.of();
         }
-        List<ExchangeRateFeign> allRates = self.getAllRates(date);
+        List<ExchangeRateFeign> allRates = self().getAllRates(date);
 
         List<ExchangeRateFeign> result = new ArrayList<>();
         List<String> failedCodes = new ArrayList<>();
@@ -163,10 +188,14 @@ public class NbpCurrencyService implements CurrencyProovider{
     @Override
     @Cacheable(value = "exchangeRateHistory", key = "#from + '-' + #to + '-' + #code")
     public List<ExchangeRateFeign> getRateHistory(LocalDate from, LocalDate to, String code) {
+
         validateDate(from);
         validateDate(to);
         validateCurrencyCode(code);
         validateDateRange(from, to);
+
+        cacheMetrics.recordMiss("GetRatesHistory");
+
 
         try {
             NbpRateDto response = nbpClient.getRatesByDateRange(
@@ -216,7 +245,10 @@ public class NbpCurrencyService implements CurrencyProovider{
         validateCurrencyCode(firstCode);
         validateCurrencyCode(secondCode);
 
-        List<ExchangeRateFeign> allRates= getAllRates(date);
+        cacheMetrics.recordMiss("GetExchangeRates");
+
+
+        List<ExchangeRateFeign> allRates= self().getAllRates(date);
 
 
         ExchangeRateFeign firstRate = findByCode(allRates,firstCode);

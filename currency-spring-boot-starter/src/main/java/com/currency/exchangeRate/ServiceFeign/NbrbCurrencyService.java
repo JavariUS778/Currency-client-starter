@@ -5,6 +5,7 @@ import com.currency.exchangeRate.FeDto.NbrbCurrencyDto;
 import com.currency.exchangeRate.FeDto.NbrbRateDto;
 import com.currency.exchangeRate.FeDto.NbrbShortDto;
 import com.currency.exchangeRate.ModelFeign.ExchangeRateFeign;
+import com.currency.exchangeRate.cache.CacheMetricsExporter;
 import com.currency.exchangeRate.exception.StarterError;
 import com.currency.exchangeRate.exception.StarterException;
 import feign.FeignException;
@@ -30,6 +31,9 @@ public class NbrbCurrencyService implements CurrencyProovider {
     @Autowired
     private CurrencyProovider self;
 
+    @Autowired
+    private CacheMetricsExporter cacheMetrics;
+
     private static final DateTimeFormatter DATE_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
@@ -42,7 +46,12 @@ public class NbrbCurrencyService implements CurrencyProovider {
     @Override
     @Cacheable(value = "exchangeRates", key = "'all-' + #date.toString()")
     public List<ExchangeRateFeign> getAllRates(LocalDate date) {
+
         validateDate(date);
+
+
+        cacheMetrics.recordMiss("GetAllRates");
+
 
         try {
             String dateStr = date.format(DATE_FORMAT);
@@ -80,8 +89,12 @@ public class NbrbCurrencyService implements CurrencyProovider {
     @Override
     @Cacheable(value = "exchangeRates", key = "#date.toString() + '-' + #code")
     public ExchangeRateFeign getRateByCode(LocalDate date, String code) {
+
         validateDate(date);
         validateCurrencyCode(code);
+
+
+        cacheMetrics.recordMiss("GetRateByCode");
 
         try {
             try {
@@ -134,7 +147,12 @@ public class NbrbCurrencyService implements CurrencyProovider {
     @Override
     @Cacheable(value = "exchangeRates", key = "'batch-' + #date.toString() + '-' + T(String).join(',', #codes.stream().sorted().toList())")
     public List<ExchangeRateFeign> getRatesByCodes(LocalDate date, List<String> codes) {
+
         validateDate(date);
+
+
+        cacheMetrics.recordMiss("GetRatesByCodes");
+
 
         if (codes == null || codes.isEmpty()) {
             log.warn("Пустой список кодов валют");
@@ -177,10 +195,15 @@ public class NbrbCurrencyService implements CurrencyProovider {
     @Override
     @Cacheable(value = "exchangeRateHistory", key = "#from + '-' + #to + '-' + #code")
     public List<ExchangeRateFeign> getRateHistory(LocalDate from, LocalDate to, String code) {
+
         validateDate(from);
         validateDate(to);
         validateCurrencyCode(code);
         validateDateRange(from, to, 365);
+
+
+        cacheMetrics.recordMiss("GetRateHistory");
+
 
         try {
             Integer curId = resolveCurId(code);
@@ -265,6 +288,9 @@ public class NbrbCurrencyService implements CurrencyProovider {
         validateDate(date);
         validateCurrencyCode(firstCode);
         validateCurrencyCode(secondCode);
+
+        cacheMetrics.recordMiss("GetExchangeRate");
+
 
         List<ExchangeRateFeign> allRates = getAllRatesDirect(date);
 

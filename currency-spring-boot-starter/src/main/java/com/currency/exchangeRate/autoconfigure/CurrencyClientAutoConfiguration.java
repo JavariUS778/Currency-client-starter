@@ -7,6 +7,7 @@ import com.currency.exchangeRate.ServiceFeign.CurrencyProovider;
 import com.currency.exchangeRate.ServiceFeign.NbpCurrencyService;
 import com.currency.exchangeRate.ServiceFeign.NbrbCurrencyService;
 import com.currency.exchangeRate.ServiceFeign.*;
+import com.currency.exchangeRate.cache.CacheMetricsExporter;
 import com.currency.exchangeRate.exception.GracefulCacheErrorHandler;
 import com.currency.exchangeRate.properties.CurrencyClientProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -14,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import feign.Client;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -24,6 +26,7 @@ import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.concurrent.ConcurrentMapCacheManager;
 import org.springframework.cache.interceptor.CacheErrorHandler;
 import org.springframework.cloud.openfeign.EnableFeignClients;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.redis.cache.RedisCacheConfiguration;
 import org.springframework.data.redis.cache.RedisCacheManager;
@@ -89,6 +92,12 @@ public class CurrencyClientAutoConfiguration {
     @ConditionalOnMissingBean(CacheManager.class)
     public CacheManager concurrentMapCacheManager() {
         return new ConcurrentMapCacheManager("exchangeRates", "exchangeRateHistory");
+    }
+
+    @Bean
+    @ConditionalOnClass(MeterRegistry.class)
+    public CacheMetricsExporter cacheMetricsExporter(MeterRegistry registry) {
+        return new CacheMetricsExporter(registry);
     }
 
     @Bean

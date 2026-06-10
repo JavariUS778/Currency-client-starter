@@ -1,15 +1,19 @@
 package com.currency.exchangeRate.ModelFeign;
 
 
+import lombok.extern.slf4j.Slf4j;
 import org.w3c.dom.*;
 import javax.xml.parsers.*;
 import java.io.ByteArrayInputStream;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
+@Slf4j
 public class CbrSoapEnvelopeBuilder {
 
     private static final DateTimeFormatter DATE_FORMATTER =
@@ -34,32 +38,19 @@ public class CbrSoapEnvelopeBuilder {
 
     private static final String GET_CURS_DYNAMIC_TEMPLATE =
             """
-            <?xml version="1.0" encoding="utf-8"?>
-            <soap:Envelope
-                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-              <soap:Body>
-                <GetCursDynamic xmlns="http://web.cbr.ru/">
-                  <FromDate>%s</FromDate>
-                  <ToDate>%s</ToDate>
-                  <ValutaCode>%s</ValutaCode>
-                </GetCursDynamic>
-              </soap:Body>
-            </soap:Envelope>
-            """;
-
-    private static final String GET_LATEST_DATE_TEMPLATE =
-            """
-            <?xml version="1.0" encoding="utf-8"?>
-            <soap:Envelope
-                xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
-                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
-              <soap:Body>
-                <GetLatestDateTime xmlns="http://web.cbr.ru/"/>
-              </soap:Body>
-            </soap:Envelope>
+        <?xml version="1.0" encoding="utf-8"?>
+        <soap:Envelope
+            xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+            xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+            xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+          <soap:Body>
+            <GetCursDynamic xmlns="http://web.cbr.ru/">
+              <FromDate>%s</FromDate>
+              <ToDate>%s</ToDate>
+              <ValutaCode>%s</ValutaCode>
+            </GetCursDynamic>
+          </soap:Body>
+        </soap:Envelope>
             """;
 
 
@@ -77,9 +68,6 @@ public class CbrSoapEnvelopeBuilder {
         );
     }
 
-    public String buildGetLatestDateTimeRequest() {
-        return GET_LATEST_DATE_TEMPLATE;
-    }
 
 
 
@@ -110,10 +98,20 @@ public class CbrSoapEnvelopeBuilder {
 
             for (int i = 0; i < valuteNodes.getLength(); i++) {
                 Element element = (Element) valuteNodes.item(i);
+                String vcode = getElementText(element, "Vcode");
+                String vchCode = getElementText(element, "VchCode");
+                log.info("Vcode: {}, VchCode: {}", vcode, vchCode);
                 ExchangeRateFeign rate = new ExchangeRateFeign();
-                rate.setCharCode(getElementText(element, "Vcode")); // Vcode в динамике — это внутр. код ЦБ
+                rate.setCharCode(getElementText(element,"Vchcode"));
                 rate.setRate(new BigDecimal(getElementText(element, "Vcurs")));
                 rate.setNominal(Integer.parseInt(getElementText(element, "Vnom")));
+                rate.setName(CBR_CODE_MAP.getOrDefault(getElementText(element,"Vcode"),getElementText(element,"Vchcode") ));
+                rate.setNumCode(getElementText(element, "Vcode"));
+                rate.setCharCode(CBR_CODE_MAP.getOrDefault(getElementText(element,"Vcode"),getElementText(element,"Vchcode")));
+                String dateStr = getElementText(element, "CursDate");
+                if (!dateStr.isEmpty()) {
+                    rate.setDate(OffsetDateTime.parse(dateStr).toLocalDate());
+                }
 
                 rates.add(rate);
             }
@@ -122,20 +120,6 @@ public class CbrSoapEnvelopeBuilder {
         }
 
         return rates;
-    }
-
-    public LocalDate parseGetLatestDateTimeResponse(String soapResponse) {
-        try {
-            Document document = parseXml(soapResponse);
-            NodeList nodes = document.getElementsByTagName("GetLatestDateTimeResult");
-            if (nodes.getLength() > 0) {
-                String dateStr = nodes.item(0).getTextContent();
-                return LocalDate.parse(dateStr.substring(0, 10));
-            }
-        } catch (Exception e) {
-            throw new RuntimeException("Ошибка парсинга последней даты ЦБ", e);
-        }
-        return LocalDate.now();
     }
 
 
@@ -164,5 +148,30 @@ public class CbrSoapEnvelopeBuilder {
             return nodeList.item(0).getTextContent();
         }
         return "";
+
+
     }
+    private static final Map<String, String> CBR_CODE_MAP = Map.ofEntries(
+            Map.entry("R01235", "USD"),
+            Map.entry("R01239", "EUR"),
+            Map.entry("R01035", "GBP"),
+            Map.entry("R01375", "CNY"),
+            Map.entry("R01820", "JPY"),
+            Map.entry("R01775", "CHF"),
+            Map.entry("R01700", "TRY"),
+            Map.entry("R01270", "INR"),
+            Map.entry("R01350", "CAD"),
+            Map.entry("R01010", "AUD"),
+            Map.entry("R01720", "UAH"),
+            Map.entry("R01335", "KZT"),
+            Map.entry("R01090", "BYN"),
+            Map.entry("R01565", "PLN"),
+            Map.entry("R01760", "CZK"),
+            Map.entry("R01770", "SEK"),
+            Map.entry("R01535", "NOK"),
+            Map.entry("R01215", "DKK"),
+            Map.entry("R01100", "BGN"),
+            Map.entry("R01585", "RON"),
+            Map.entry("R01135", "HUF")
+    );
 }

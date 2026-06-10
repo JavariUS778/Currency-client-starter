@@ -3,8 +3,10 @@ package com.currency.exchangeRate.ServiceFeign;
 import com.currency.exchangeRate.ClientFeign.CbrFeClient;
 import com.currency.exchangeRate.ModelFeign.CbrSoapEnvelopeBuilder;
 import com.currency.exchangeRate.ModelFeign.ExchangeRateFeign;
+import com.currency.exchangeRate.cache.CacheMetricsExporter;
 import com.currency.exchangeRate.exception.StarterError;
 import com.currency.exchangeRate.exception.StarterException;
+import com.currency.exchangeRate.utility.DateUtil;
 import feign.FeignException;
 import feign.RetryableException;
 import lombok.extern.slf4j.Slf4j;
@@ -19,12 +21,18 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+
+
 
 @Slf4j
 public class CbrCurrencyService implements CurrencyProovider {
     @Lazy
     @Autowired
     private CurrencyProovider self;
+
+    @Autowired
+    private CacheMetricsExporter cacheMetrics;
 
     private static final DateTimeFormatter DATE_FORMAT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd");
@@ -42,8 +50,14 @@ public class CbrCurrencyService implements CurrencyProovider {
     public List<ExchangeRateFeign> getAllRates(LocalDate date) {
         validateDate(date);
 
+        cacheMetrics.recordMiss("GetAllRates");
+
+        LocalDate businessDay = DateUtil.getLastBusinessDay(date);
+
         try {
-            String request = envelopeBuilder.buildGetCursOnDateRequest(date);
+
+            String request = envelopeBuilder.buildGetCursOnDateRequest(businessDay);
+
             String response = cbrClient.getCursOnDate(request);
 
             if (response == null || response.isBlank()) {
@@ -52,12 +66,19 @@ public class CbrCurrencyService implements CurrencyProovider {
 
             List<ExchangeRateFeign> rates = envelopeBuilder.parseGetCursOnDateResponse(response);
 
+
             if (rates == null || rates.isEmpty()) {
                 throw new StarterException(StarterError.CURRENCY_BY_DATE_NOT_FOUND);
             }
-
+            log.info("SOAP GetCursOnDate: date={}", businessDay);
+            log.info("SOAP Request: {}", request);
+            log.info("SOAP Response status: {}", response != null ? "OK" : "NULL");
+            if (response != null) {
+                log.info("SOAP Response: {}", response.substring(0, Math.min(500, response.length())));
+            }
             return rates;
-
+        }catch (StarterException e) {
+                throw e;
         } catch (FeignException.NotFound e) {
             log.warn("Курсы ЦБ РФ не найдены для даты: {}", date, e);
             throw new StarterException(StarterError.CURRENCY_BY_DATE_NOT_FOUND);
@@ -73,22 +94,24 @@ public class CbrCurrencyService implements CurrencyProovider {
         } catch (FeignException e) {
             log.error("Ошибка Feign при запросе курсов ЦБ РФ: status={}", e.status(), e);
             throw new StarterException(StarterError.CBR_CLIENT_IS_NOT_AVAILABLE);
-        } catch (StarterException e) {
-            throw e;
         } catch (Exception e) {
             log.error("Неожиданная ошибка при получении курсов ЦБ РФ", e);
             throw new StarterException(StarterError.CBR_CLIENT_IS_NOT_AVAILABLE);
         }
+
     }
 
     @Override
     @Cacheable(value = "exchangeRates", key = "#date.toString() + '-' + #code")
     public ExchangeRateFeign getRateByCode(LocalDate date, String code) {
+
         validateDate(date);
         validateCurrencyCode(code);
 
+        cacheMetrics.recordMiss("GetRateByCode");
+
         try {
-            List<ExchangeRateFeign> allRates = getAllRates(date);
+            List<ExchangeRateFeign> allRates = self.getAllRates(date);
 
             return allRates.stream()
                     .filter(rate -> matchesCode(rate, code))
@@ -102,7 +125,7 @@ public class CbrCurrencyService implements CurrencyProovider {
             throw e;
         } catch (Exception e) {
             log.error("Неожиданная ошибка при поиске курса ЦБ РФ {} на {}", code, date, e);
-            throw new StarterException(StarterError.CBR_CLIENT_IS_NOT_AVAILABLE);
+            throw new StarterException(StarterError.CURRENCY_BY_CODE_NOT_FOUND);
         }
     }
 
@@ -112,11 +135,13 @@ public class CbrCurrencyService implements CurrencyProovider {
     public List<ExchangeRateFeign> getRatesByCodes(LocalDate date, List<String> codes) {
         validateDate(date);
 
+        cacheMetrics.recordMiss("GetRatesByCodes");
+
         if (codes == null || codes.isEmpty()) {
             log.warn("Пустой список кодов валют");
             return List.of();
         }
-        List<ExchangeRateFeign> allRates = self.getAllRates(date);
+        List<ExchangeRateFeign> allRates = getAllRates(date);
 
         List<ExchangeRateFeign> result = new ArrayList<>();
         List<String> failedCodes = new ArrayList<>();
@@ -158,11 +183,20 @@ public class CbrCurrencyService implements CurrencyProovider {
         validateCurrencyCode(code);
         validateDateRange(from, to, 365);
 
+        cacheMetrics.recordMiss("GetRateHistory");
+
         try {
             String internalCode = resolveInternalCode(code);
 
+            log.info("SOAP GetCursDynamic: from={}, to={}, valutaCode={}", from, to, internalCode);
+
             String request = envelopeBuilder.buildGetCursDynamicRequest(from, to, internalCode);
+
+            log.info("SOAP Request: {}", request);
+
             String response = cbrClient.getCursDynamic(request);
+
+            log.info("SOAP Response: {}", response.substring(0, Math.min(500, response.length())));
 
             if (response == null || response.isBlank()) {
                 throw new StarterException(StarterError.HISTORY_OF_CURRENCY_IS_NOT_FOUND);
@@ -212,7 +246,9 @@ public class CbrCurrencyService implements CurrencyProovider {
         validateCurrencyCode(firstCode);
         validateCurrencyCode(secondCode);
 
-        List<ExchangeRateFeign> allRates= getAllRates(date);
+        cacheMetrics.recordMiss("GetExchangeRate");
+
+        List<ExchangeRateFeign> allRates= self.getAllRates(date);
 
 
         ExchangeRateFeign firstRate = findByCode(allRates,firstCode);
@@ -240,24 +276,12 @@ public class CbrCurrencyService implements CurrencyProovider {
             return code;
         }
 
-        try {
-            List<ExchangeRateFeign> allRates = getAllRates(LocalDate.now());
-
-            return allRates.stream()
-                    .filter(rate -> code.equalsIgnoreCase(rate.getCharCode()))
-                    .findFirst()
-                    .map(ExchangeRateFeign::getNumCode)
-                    .orElseThrow(() -> {
-                        log.warn("Не удалось найти внутренний код для валюты {}", code);
-                        return new StarterException(StarterError.CURRENCY_BY_CODE_NOT_FOUND);
-                    });
-
-        } catch (StarterException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Ошибка при определении внутреннего кода для {}", code, e);
-            throw new StarterException(StarterError.CBR_CLIENT_IS_NOT_AVAILABLE);
+        String internalCode = CBR_CODE_MAP.get(code.toUpperCase());
+        if (internalCode != null) {
+            return internalCode;
         }
+
+        throw new StarterException(StarterError.CURRENCY_BY_CODE_NOT_FOUND);
     }
 
     private void validateDate(LocalDate date) {
@@ -304,4 +328,29 @@ public class CbrCurrencyService implements CurrencyProovider {
     public String getProviderName(){
         return "CBR";
     }
+
+    private static final Map<String, String> CBR_CODE_MAP = Map.ofEntries(
+            Map.entry("USD", "R01235"),
+            Map.entry("EUR", "R01239"),
+            Map.entry("GBP", "R01035"),
+            Map.entry("CNY", "R01375"),
+            Map.entry("JPY", "R01820"),
+            Map.entry("CHF", "R01775"),
+            Map.entry("TRY", "R01700"),
+            Map.entry("INR", "R01270"),
+            Map.entry("CAD", "R01350"),
+            Map.entry("AUD", "R01010"),
+            Map.entry("UAH", "R01720"),
+            Map.entry("KZT", "R01335"),
+            Map.entry("BYN", "R01090"),
+            Map.entry("PLN", "R01565"),
+            Map.entry("CZK", "R01760"),
+            Map.entry("SEK", "R01770"),
+            Map.entry("NOK", "R01535"),
+            Map.entry("DKK", "R01215"),
+            Map.entry("BGN", "R01100"),
+            Map.entry("RON", "R01585"),
+            Map.entry("HUF", "R01135")
+    );
+
 }
